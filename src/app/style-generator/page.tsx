@@ -123,6 +123,8 @@ export default function StyleGeneratorPage() {
         ({ base64, mimeType } = await resizeToBase64(photoFile));
       }
 
+      if (mockMode) await new Promise((r) => setTimeout(r, 4000));
+
       const res = await fetch("/api/style-generator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
