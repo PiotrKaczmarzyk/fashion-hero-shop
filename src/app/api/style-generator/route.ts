@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
 import { products } from "@/data/products";
 import type { ProductCategory, ShoeType } from "@/types";
-
-const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 
 interface StyleAnalysis {
   gender?: "men" | "women" | "unisex";
@@ -18,16 +15,26 @@ export async function POST(req: NextRequest) {
       imageBase64: string;
       mimeType: string;
       occasion: string;
+      mock?: boolean;
     };
-    const { imageBase64, mimeType, occasion } = body;
+    const { imageBase64, mimeType, occasion, mock } = body;
+
+    // ── Mock mode — returns sample data without touching the AI APIs ──────────
+    if (mock) {
+      return NextResponse.json({ generatedImage: null, products: products.slice(0, 6) });
+    }
 
     if (!imageBase64 || !occasion) {
       return NextResponse.json({ error: "Brak zdjęcia lub okazji." }, { status: 400 });
     }
 
+    // Dynamic import — loaded at runtime, never touched by webpack at build time
+    const { GoogleGenAI } = await import("@google/genai");
+    const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
+
     // Step 1: Analyse the photo — get style recommendations + image prompt
     const analysisResponse = await genAI.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-flash-preview-05-20",
       contents: [
         {
           role: "user",
@@ -109,9 +116,11 @@ Return ONLY valid JSON (no markdown, no code fences):
     return NextResponse.json({ generatedImage, products: recommended });
   } catch (err) {
     console.error("[style-generator]", err);
-    return NextResponse.json(
-      { error: "Nie udało się wygenerować stylizacji. Spróbuj ponownie." },
-      { status: 500 }
-    );
+    const raw = String(err);
+    const isQuota = raw.includes("429") || raw.includes("quota") || raw.includes("RESOURCE_EXHAUSTED");
+    const message = isQuota
+      ? "Przekroczono limit API Google AI. Sprawdź swoje quota na aistudio.google.com i spróbuj ponownie."
+      : "Nie udało się wygenerować stylizacji. Spróbuj ponownie.";
+    return NextResponse.json({ error: message }, { status: isQuota ? 429 : 500 });
   }
 }

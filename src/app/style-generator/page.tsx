@@ -102,8 +102,8 @@ export default function StyleGeneratorPage() {
 
   // ── Generation ─────────────────────────────────────────────────────────────
 
-  const startGeneration = useCallback(async (occasion: string) => {
-    if (!photoFile) return;
+  const startGeneration = useCallback(async (occasion: string, mockMode = false) => {
+    if (!mockMode && !photoFile) return;
 
     setSelectedOccasion(occasion);
     setStep("generating");
@@ -117,17 +117,21 @@ export default function StyleGeneratorPage() {
     }, 4500);
 
     try {
-      const { base64, mimeType } = await resizeToBase64(photoFile);
+      let base64 = "";
+      let mimeType = "image/jpeg";
+      if (!mockMode && photoFile) {
+        ({ base64, mimeType } = await resizeToBase64(photoFile));
+      }
 
       const res = await fetch("/api/style-generator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mimeType, occasion }),
+        body: JSON.stringify({ imageBase64: base64, mimeType, occasion, mock: mockMode }),
       });
 
       const data = (await res.json()) as StyleResult & { error?: string };
 
-      if (!res.ok) throw new Error(data.error ?? "Błąd serwera");
+      if (!res.ok) throw new Error(data.error ?? (res.status === 429 ? "Przekroczono limit API. Sprawdź quota na aistudio.google.com." : "Błąd serwera"));
 
       setResult(data);
       setStep("result");
@@ -231,6 +235,16 @@ export default function StyleGeneratorPage() {
                 e.target.value = "";
               }}
             />
+
+            {/* Dev shortcut — visible on upload step too */}
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => startGeneration("Kolacja", true)}
+                className="text-xs font-medium text-warm-gray/50 hover:text-charcoal underline underline-offset-2 transition-colors"
+              >
+                🧪 Testuj bez AI (dane mockowe)
+              </button>
+            </div>
           </div>
         )}
 
@@ -279,6 +293,17 @@ export default function StyleGeneratorPage() {
                   </span>
                 </button>
               ))}
+            </div>
+
+            {/* Dev shortcut — skips AI entirely */}
+            <div className="mt-8 text-center">
+              <p className="text-xs text-warm-gray/50 mb-2">Chcesz przetestować widok wyników bez zużywania tokenów AI?</p>
+              <button
+                onClick={() => startGeneration("Kolacja", true)}
+                className="text-xs font-medium text-warm-gray/60 hover:text-charcoal underline underline-offset-2 transition-colors"
+              >
+                🧪 Testuj bez AI (dane mockowe)
+              </button>
             </div>
           </div>
         )}
