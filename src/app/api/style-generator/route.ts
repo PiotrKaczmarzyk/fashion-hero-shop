@@ -34,22 +34,15 @@ export async function POST(req: NextRequest) {
 
     // Step 1: Analyse the photo — get style recommendations + image prompt
     const analysisResponse = await genAI.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash-8b",
       contents: [
         {
           role: "user",
           parts: [
             { inlineData: { mimeType, data: imageBase64 } },
             {
-              text: `You are a professional fashion stylist. Analyse this person and create a styled outfit for the occasion: "${occasion}".
-
-Return ONLY valid JSON (no markdown, no code fences):
-{
-  "gender": "men" or "women" or "unisex",
-  "productCategories": array — pick relevant values from ["shoes","socks","apparel","accessories"],
-  "productTypes": array — pick relevant values from ["runner","walker","trainer","hiker","slip-on","flat","slide","loafer","tee","hoodie","pant","jacket","cardigan"],
-  "imagePrompt": "Photorealistic full-body fashion editorial. [Describe: hair colour, build, skin tone of the person in the photo]. Wearing [describe a complete, stylish outfit perfectly suited for ${occasion}]. Clean neutral background. Natural studio lighting. Sharp focus."
-}`,
+              text: `Fashion stylist. Occasion: "${occasion}". Return ONLY JSON, no markdown:
+{"gender":"men"|"women"|"unisex","productCategories":["shoes"|"socks"|"apparel"|"accessories"],"productTypes":["runner"|"walker"|"trainer"|"hiker"|"slip-on"|"flat"|"slide"|"loafer"|"tee"|"hoodie"|"pant"|"jacket"|"cardigan"],"imagePrompt":"Photorealistic full-body editorial. [hair, build, skin tone from photo]. Styled for ${occasion}. Neutral background, studio light."}`,
             },
           ],
         },

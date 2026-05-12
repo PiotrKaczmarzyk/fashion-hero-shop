@@ -41,7 +41,7 @@ async function resizeToBase64(file: File): Promise<{ base64: string; mimeType: s
     const img = document.createElement("img");
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
-      const MAX = 1024;
+      const MAX = 512;
       let { width, height } = img;
       if (width > MAX || height > MAX) {
         if (width >= height) {
