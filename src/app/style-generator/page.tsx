@@ -34,36 +34,6 @@ interface StyleResult {
   products: Product[];
 }
 
-// ─── Image helpers ────────────────────────────────────────────────────────────
-
-async function resizeToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
-  return new Promise((resolve) => {
-    const img = document.createElement("img");
-    const objectUrl = URL.createObjectURL(file);
-    img.onload = () => {
-      const MAX = 512;
-      let { width, height } = img;
-      if (width > MAX || height > MAX) {
-        if (width >= height) {
-          height = Math.round((height * MAX) / width);
-          width = MAX;
-        } else {
-          width = Math.round((width * MAX) / height);
-          height = MAX;
-        }
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
-      URL.revokeObjectURL(objectUrl);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-      resolve({ base64: dataUrl.split(",")[1], mimeType: "image/jpeg" });
-    };
-    img.src = objectUrl;
-  });
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function StyleGeneratorPage() {
@@ -102,9 +72,7 @@ export default function StyleGeneratorPage() {
 
   // ── Generation ─────────────────────────────────────────────────────────────
 
-  const startGeneration = useCallback(async (occasion: string, mockMode = false) => {
-    if (!mockMode && !photoFile) return;
-
+  const startGeneration = useCallback(async (occasion: string) => {
     setSelectedOccasion(occasion);
     setStep("generating");
     setStatusIndex(0);
@@ -117,23 +85,17 @@ export default function StyleGeneratorPage() {
     }, 4500);
 
     try {
-      let base64 = "";
-      let mimeType = "image/jpeg";
-      if (!mockMode && photoFile) {
-        ({ base64, mimeType } = await resizeToBase64(photoFile));
-      }
-
-      if (mockMode) await new Promise((r) => setTimeout(r, 4000));
+      await new Promise((r) => setTimeout(r, 4000));
 
       const res = await fetch("/api/style-generator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, mimeType, occasion, mock: mockMode }),
+        body: JSON.stringify({ imageBase64: "", mimeType: "image/jpeg", occasion, mock: true }),
       });
 
       const data = (await res.json()) as StyleResult & { error?: string };
 
-      if (!res.ok) throw new Error(data.error ?? (res.status === 429 ? "Przekroczono limit API. Sprawdź quota na aistudio.google.com." : "Błąd serwera"));
+      if (!res.ok) throw new Error(data.error ?? "Błąd serwera");
 
       setResult(data);
       setStep("result");
@@ -146,7 +108,7 @@ export default function StyleGeneratorPage() {
         statusTimerRef.current = null;
       }
     }
-  }, [photoFile]);
+  }, []);
 
   // ── Cart ───────────────────────────────────────────────────────────────────
 
@@ -238,15 +200,6 @@ export default function StyleGeneratorPage() {
               }}
             />
 
-            {/* Dev shortcut — visible on upload step too */}
-            <div className="mt-6 text-center">
-              <button
-                onClick={() => startGeneration("Kolacja", true)}
-                className="text-xs font-medium text-warm-gray/50 hover:text-charcoal underline underline-offset-2 transition-colors"
-              >
-                🧪 Testuj bez AI (dane mockowe)
-              </button>
-            </div>
           </div>
         )}
 
@@ -282,6 +235,10 @@ export default function StyleGeneratorPage() {
               </div>
             )}
 
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 text-center">
+              ⚠️ Limit tokenów Google AI wyczerpany — generacja działa w trybie demo (dane mockowe)
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {OCCASIONS.map((occ) => (
                 <button
@@ -295,17 +252,6 @@ export default function StyleGeneratorPage() {
                   </span>
                 </button>
               ))}
-            </div>
-
-            {/* Dev shortcut — skips AI entirely */}
-            <div className="mt-8 text-center">
-              <p className="text-xs text-warm-gray/50 mb-2">Chcesz przetestować widok wyników bez zużywania tokenów AI?</p>
-              <button
-                onClick={() => startGeneration("Kolacja", true)}
-                className="text-xs font-medium text-warm-gray/60 hover:text-charcoal underline underline-offset-2 transition-colors"
-              >
-                🧪 Testuj bez AI (dane mockowe)
-              </button>
             </div>
           </div>
         )}
