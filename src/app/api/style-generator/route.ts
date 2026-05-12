@@ -2,12 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { products } from "@/data/products";
 import type { ProductCategory, ShoeType } from "@/types";
 
-interface StyleAnalysis {
-  gender?: "men" | "women" | "unisex";
-  productCategories?: ProductCategory[];
-  productTypes?: ShoeType[];
-  imagePrompt?: string;
-}
+// ── Occasion → product hints (local, zero API calls) ─────────────────────────
+const OCCASION_HINTS: Record<string, { categories: ProductCategory[]; types: ShoeType[] }> = {
+  "Kolacja":            { categories: ["shoes", "apparel"], types: ["loafer", "flat", "pant", "jacket"] },
+  "Grill":              { categories: ["shoes", "apparel"], types: ["slip-on", "slide", "tee", "pant"] },
+  "Wycieczka rowerowa": { categories: ["shoes", "apparel"], types: ["trainer", "runner", "tee", "pant"] },
+  "Przyjęcie":          { categories: ["shoes", "apparel"], types: ["loafer", "flat", "hoodie", "jacket"] },
+  "Wizyta u rodziny":   { categories: ["shoes", "apparel"], types: ["slip-on", "loafer", "tee", "cardigan"] },
+  "Praca":              { categories: ["shoes", "apparel"], types: ["walker", "loafer", "pant", "jacket"] },
+  "Klub techno":        { categories: ["shoes", "apparel"], types: ["runner", "trainer", "hoodie", "pant"] },
+  "Piwo na mieście":    { categories: ["shoes", "apparel"], types: ["slip-on", "runner", "tee", "hoodie"] },
+};
+
+// ── Occasion → image-gen prompt ───────────────────────────────────────────────
+const OCCASION_PROMPTS: Record<string, string> = {
+  "Kolacja":            "elegant dinner outfit — tailored trousers, blazer, dress shoes",
+  "Grill":              "casual summer BBQ outfit — relaxed tee, chinos, slip-on sneakers",
+  "Wycieczka rowerowa": "sporty cycling look — technical tee, joggers, running shoes",
+  "Przyjęcie":          "stylish party outfit — smart-casual jacket, slim trousers, loafers",
+  "Wizyta u rodziny":   "cosy family-visit look — cardigan, relaxed trousers, slip-on shoes",
+  "Praca":              "smart office outfit — button-up shirt, tailored pants, oxford shoes",
+  "Klub techno":        "edgy club look — black hoodie, cargo pants, chunky trainers",
+  "Piwo na mieście":    "relaxed city look — graphic tee, straight jeans, clean sneakers",
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +36,7 @@ export async function POST(req: NextRequest) {
     };
     const { imageBase64, mimeType, occasion, mock } = body;
 
-    // ── Mock mode — returns sample data without touching the AI APIs ──────────
+    // ── Mock mode ─────────────────────────────────────────────────────────────
     if (mock) {
       return NextResponse.json({ generatedImage: null, products: products.slice(0, 6) });
     }
@@ -28,37 +45,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Brak zdjęcia lub okazji." }, { status: 400 });
     }
 
-    // Dynamic import — loaded at runtime, never touched by webpack at build time
+    // ── Single API call: image generation only ────────────────────────────────
     const { GoogleGenAI } = await import("@google/genai");
     const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 
-    // Step 1: Analyse the photo — get style recommendations + image prompt
-    const analysisResponse = await genAI.models.generateContent({
-      model: "gemini-1.5-flash-8b",
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { inlineData: { mimeType, data: imageBase64 } },
-            {
-              text: `Fashion stylist. Occasion: "${occasion}". Return ONLY JSON, no markdown:
-{"gender":"men"|"women"|"unisex","productCategories":["shoes"|"socks"|"apparel"|"accessories"],"productTypes":["runner"|"walker"|"trainer"|"hiker"|"slip-on"|"flat"|"slide"|"loafer"|"tee"|"hoodie"|"pant"|"jacket"|"cardigan"],"imagePrompt":"Photorealistic full-body editorial. [hair, build, skin tone from photo]. Styled for ${occasion}. Neutral background, studio light."}`,
-            },
-          ],
-        },
-      ],
-    });
+    const outfitDesc = OCCASION_PROMPTS[occasion] ?? `stylish outfit for ${occasion}`;
+    const prompt = `Restyle this person wearing a ${outfitDesc}. Full body fashion editorial photo. Keep face and hair recognisable. Clean neutral background. Photorealistic.`;
 
-    let analysis: StyleAnalysis = {};
-    try {
-      const raw = analysisResponse.text ?? "";
-      const match = raw.match(/\{[\s\S]*\}/);
-      if (match) analysis = JSON.parse(match[0]) as StyleAnalysis;
-    } catch {
-      // fallback — continue without analysis
-    }
-
-    // Step 2: Generate outfit visualisation (person in new clothes)
     const imageGenResponse = await genAI.models.generateContent({
       model: "gemini-2.0-flash-exp-image-generation",
       contents: [
@@ -66,17 +59,11 @@ export async function POST(req: NextRequest) {
           role: "user",
           parts: [
             { inlineData: { mimeType, data: imageBase64 } },
-            {
-              text:
-                analysis.imagePrompt ??
-                `Restyle this person for "${occasion}". Full body fashion photo, clean background, keep the face and hair recognisable. Photorealistic.`,
-            },
+            { text: prompt },
           ],
         },
       ],
-      config: {
-        responseModalities: ["IMAGE", "TEXT"],
-      },
+      config: { responseModalities: ["IMAGE", "TEXT"] },
     });
 
     let generatedImage: string | null = null;
@@ -88,22 +75,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Step 3: Filter catalog products by the recommended categories / types / gender
-    const filtered = products.filter((p) => {
-      const catOk =
-        !analysis.productCategories?.length ||
-        analysis.productCategories.includes(p.productCategory);
-      const typeOk =
-        !analysis.productTypes?.length ||
-        analysis.productTypes.includes(p.type);
-      const genderOk =
-        !analysis.gender ||
-        p.category === analysis.gender ||
-        p.category === "unisex";
-      return catOk && genderOk && typeOk;
-    });
-
-    // Fallback: if nothing matched, return first 6 products
+    // ── Filter products locally by occasion hints ─────────────────────────────
+    const hints = OCCASION_HINTS[occasion];
+    const filtered = hints
+      ? products.filter(
+          (p) =>
+            hints.categories.includes(p.productCategory) &&
+            hints.types.includes(p.type as ShoeType),
+        )
+      : [];
     const recommended = filtered.length >= 2 ? filtered.slice(0, 6) : products.slice(0, 6);
 
     return NextResponse.json({ generatedImage, products: recommended });
