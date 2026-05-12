@@ -38,7 +38,14 @@ export async function POST(req: NextRequest) {
 
     // ── Mock mode ─────────────────────────────────────────────────────────────
     if (mock) {
-      return NextResponse.json({ generatedImage: null, products: products.slice(0, 6) });
+      const mockProductIds = ["1", "25", "41", "27", "22", "42"];
+      const mockProducts = mockProductIds
+        .map((id) => products.find((p) => p.id === id))
+        .filter(Boolean) as typeof products;
+      return NextResponse.json({
+        generatedImage: "/images/mock-generated.jpg",
+        products: mockProducts,
+      });
     }
 
     if (!imageBase64 || !occasion) {
