@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     // Step 1: Analyse the photo — get style recommendations + image prompt
     const analysisResponse = await genAI.models.generateContent({
-      model: "gemini-2.5-flash-preview-05-20",
+      model: "gemini-2.0-flash",
       contents: [
         {
           role: "user",
